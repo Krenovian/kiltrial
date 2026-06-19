@@ -1,3 +1,4 @@
+<?php require_once 'auth_admin.php'; ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,6 +17,8 @@
       </div>
       <div class="top-bar-actions">
         <a href="index.php" class="nav-btn">🧾 POS Billing</a>
+        <span class="nav-btn" style="cursor:default;opacity:0.75">👤 <?=$adminUser?></span>
+        <button class="nav-btn" onclick="doLogout()" style="background:rgba(239,68,68,0.12);color:var(--red);border-color:rgba(239,68,68,0.3)">🚪 Logout</button>
       </div>
     </div>
     <div class="admin-container">
@@ -25,6 +28,7 @@
         <button class="nav-btn" onclick="showTab('items',this)">🍽️ Menu Items</button>
         <button class="nav-btn" onclick="showTab('bills',this)">📋 Bills</button>
         <button class="nav-btn" onclick="showTab('analytics',this)">📈 Analytics</button>
+        <button class="nav-btn" onclick="showTab('users',this)">👥 Users</button>
       </div>
 
       <!-- Dashboard -->
@@ -32,8 +36,9 @@
         <div class="stat-grid" id="statsGrid"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
           <div class="data-card"><div class="data-card-header"><h3>🏆 Top Selling Items</h3></div>
-            <div style="padding:8px 0"><table><thead><tr><th>Item</th><th>Qty</th><th>Revenue</th></tr></thead>
-            <tbody id="topItemsBody"></tbody></table></div></div>
+            <div style="padding:8px 0"><table><thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Revenue</th></tr></thead>
+            <tbody id="topItemsBody"></tbody></table></div>
+          <div class="pagination" id="topItemsPagination"></div></div>
           <div class="data-card"><div class="data-card-header"><h3>🕐 Recent Bills</h3></div>
             <div style="padding:8px 0"><table><thead><tr><th>Bill #</th><th>Total</th><th>Method</th></tr></thead>
             <tbody id="recentBillsBody"></tbody></table></div></div>
@@ -120,6 +125,52 @@
           </div>
         </div>
       </div>
+
+      <!-- Users -->
+      <div id="tab-users" class="tab-content" style="display:none">
+        <!-- Admin Profile -->
+        <div class="data-card" style="margin-bottom:20px">
+          <div class="data-card-header">
+            <h3>🔐 Admin Profile</h3>
+            <span style="font-size:12px;color:var(--text-muted)">Currently logged in as <strong style="color:var(--accent)"><?=$adminUser?></strong></span>
+          </div>
+          <form onsubmit="updateAdminCredentials(event)" style="padding:20px">
+            <div class="form-row">
+              <div class="form-group">
+                <label>New Username</label>
+                <input type="text" id="adminNewUsername" placeholder="<?=$adminUser?>" value="<?=$adminUser?>" required>
+              </div>
+              <div class="form-group">
+                <label>Current Password <span style="color:var(--red)">*</span></label>
+                <input type="password" id="adminCurrentPass" placeholder="Required to save changes" required>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>New Password <span style="color:var(--text-muted)">(leave blank to keep)</span></label>
+                <input type="password" id="adminNewPass" placeholder="New password">
+              </div>
+              <div class="form-group">
+                <label>Confirm New Password</label>
+                <input type="password" id="adminConfirmPass" placeholder="Repeat new password">
+              </div>
+            </div>
+            <button type="submit" class="add-btn">💾 Update Credentials</button>
+          </form>
+        </div>
+
+        <!-- POS Cashier Users -->
+        <div class="data-card">
+          <div class="data-card-header"><h3>👥 POS Cashier Users</h3>
+            <button class="add-btn" onclick="showUserForm()">+ Add User</button></div>
+          <div class="table-scroll">
+          <table><thead><tr><th>Name</th><th>Username</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="usersBody"></tbody></table>
+          </div>
+          <div class="pagination" id="userPagination"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -133,11 +184,8 @@
   </div>
 
 <script>
-let categories = [];
-let allCategoriesData = [];
-let allItemsData = [];
-let allExpensesData = [];
-let catPage = 1, itemPage = 1, billPage = 1, expensePage = 1;
+let categories = [], allCategoriesData = [], allItemsData = [], allExpensesData = [], allUsersData = [], topItemsData = [];
+let catPage = 1, itemPage = 1, billPage = 1, expensePage = 1, userPage = 1, topItemsPage = 1;
 const PER_PAGE = 10;
 
 // ─── API ──────────────────────────────
@@ -145,11 +193,19 @@ async function api(action, params = {}) {
   const url = new URL('api.php', window.location.href);
   url.searchParams.set('action', action);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  return (await fetch(url)).json();
+  const res = await fetch(url);
+  if (res.status === 401) { location.reload(); return { success: false }; }
+  return res.json();
 }
 async function apiPostForm(action, formData) {
   formData.append('action', action);
-  return (await fetch('api.php', { method: 'POST', body: formData })).json();
+  const res = await fetch('api.php', { method: 'POST', body: formData });
+  if (res.status === 401) { location.reload(); return { success: false }; }
+  return res.json();
+}
+async function doLogout() {
+  await fetch('api.php?action=admin_logout');
+  location.href = 'admin.php';
 }
 
 function showToast(msg, type = 'success') {
@@ -175,6 +231,7 @@ function showTab(name, el) {
     if(!document.getElementById('analyticsDate').value) document.getElementById('analyticsDate').value = new Date().toISOString().split('T')[0];
     loadAnalytics();
   }
+  if (name === 'users') loadUsers();
 }
 
 // ─── DASHBOARD ────────────────────────
@@ -186,14 +243,19 @@ async function loadDashboard() {
     <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-value" style="color:var(--green)">₹${parseFloat(res.today_revenue).toFixed(0)}</div><div class="stat-label">Today's Revenue</div></div>
     <div class="stat-card"><div class="stat-icon">📊</div><div class="stat-value">${res.total_bills}</div><div class="stat-label">Total Bills</div></div>
     <div class="stat-card"><div class="stat-icon">🍽️</div><div class="stat-value">${res.item_count}</div><div class="stat-label">Menu Items</div></div>`;
-
-  document.getElementById('topItemsBody').innerHTML = (res.top_items || []).map(i =>
-    `<tr><td style="font-weight:600">${i.item_name}</td><td>${i.total_qty}</td><td style="color:var(--green);font-weight:600">₹${parseFloat(i.total_revenue).toFixed(0)}</td></tr>`
-  ).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">No data yet</td></tr>';
-
+  topItemsData = res.top_items || []; topItemsPage = 1; renderTopItemsPage();
   document.getElementById('recentBillsBody').innerHTML = (res.recent_bills || []).map(b =>
     `<tr><td style="color:var(--accent);font-weight:600">${b.bill_number}</td><td style="font-weight:600">₹${parseFloat(b.total).toFixed(0)}</td><td>${b.payment_method}</td></tr>`
   ).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">No bills yet</td></tr>';
+}
+function renderTopItemsPage() {
+  const total = Math.ceil(topItemsData.length / PER_PAGE);
+  const paged = topItemsData.slice((topItemsPage-1)*PER_PAGE, topItemsPage*PER_PAGE);
+  const offset = (topItemsPage-1)*PER_PAGE;
+  document.getElementById('topItemsBody').innerHTML = paged.map((i,idx) =>
+    `<tr><td style="color:var(--text-muted);font-weight:700">#${offset+idx+1}</td><td style="font-weight:600">${i.item_name}</td><td>${i.total_qty}</td><td style="color:var(--green);font-weight:600">₹${parseFloat(i.total_revenue).toFixed(0)}</td></tr>`
+  ).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:30px">No data yet</td></tr>';
+  renderPagination('topItemsPagination', topItemsPage, total, p => { topItemsPage=p; renderTopItemsPage(); });
 }
 
 // ─── CATEGORIES ───────────────────────
@@ -415,15 +477,94 @@ async function addExpense(e) {
 
 async function deleteExpense(id) {
   if (!confirm('Delete this expense?')) return;
-  const fd = new FormData();
-  fd.append('action', 'delete_expense');
-  fd.append('id', id);
+  const fd = new FormData(); fd.append('action', 'delete_expense'); fd.append('id', id);
   const res = await (await fetch('api.php', { method: 'POST', body: fd })).json();
+  if (res.success) { showToast('Expense deleted!'); loadAnalytics(); }
+  else showToast(res.error, 'error');
+}
+
+// ─── USERS ────────────────────────────
+async function loadUsers() {
+  const tbody = document.getElementById('usersBody');
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:30px">Loading…</td></tr>';
+  const res = await api('get_pos_users');
+  if (!res.success) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--red);padding:30px">Failed to load users. Please try again.</td></tr>';
+    return;
+  }
+  allUsersData = res.data || []; userPage = 1; renderUsersPage();
+}
+function renderUsersPage() {
+  const total = Math.ceil(allUsersData.length / PER_PAGE);
+  const paged = allUsersData.slice((userPage-1)*PER_PAGE, userPage*PER_PAGE);
+  document.getElementById('usersBody').innerHTML = paged.map(u => `<tr>
+    <td style="font-weight:600">${u.name}</td>
+    <td style="color:var(--text-secondary)">${u.username}</td>
+    <td><span class="status-badge ${u.active==1?'active':'inactive'}">${u.active==1?'Active':'Inactive'}</span></td>
+    <td><div class="action-btns">
+      <button class="action-btn" onclick='showUserForm(${JSON.stringify(u)})'>Edit</button>
+      <button class="action-btn delete" onclick="deleteUser(${u.id})">Delete</button>
+    </div></td></tr>`).join('') ||
+    '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:40px">No users yet. Add a cashier to get started.</td></tr>';
+  renderPagination('userPagination', userPage, total, p => { userPage=p; renderUsersPage(); });
+}
+function showUserForm(user = null) {
+  document.getElementById('formTitle').textContent = user ? 'Edit User' : 'Add User';
+  document.getElementById('formBody').innerHTML = `
+    <form onsubmit="saveUser(event,${user ? user.id : 'null'})">
+      <div class="form-row">
+        <div class="form-group"><label>Full Name</label><input id="uName" value="${user ? user.name : ''}" placeholder="e.g. Ravi Kumar" required></div>
+        <div class="form-group"><label>Username</label><input id="uUsername" value="${user ? user.username : ''}" placeholder="e.g. ravi" required></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Password ${user ? '(leave blank to keep)' : ''}</label><input type="password" id="uPassword" placeholder="Password" ${user ? '' : 'required'}></div>
+        <div class="form-group"><label>Status</label><select id="uActive"><option value="1" ${!user||user.active==1?'selected':''}>Active</option><option value="0" ${user&&user.active==0?'selected':''}>Inactive</option></select></div>
+      </div>
+      <button type="submit" class="bill-btn" style="margin-top:8px">💾 Save User</button>
+    </form>`;
+  document.getElementById('formModal').style.display = 'flex';
+}
+async function saveUser(e, id) {
+  e.preventDefault();
+  const fd = new FormData();
+  fd.append('name', document.getElementById('uName').value);
+  fd.append('username', document.getElementById('uUsername').value);
+  fd.append('password', document.getElementById('uPassword').value);
+  fd.append('active', document.getElementById('uActive').value);
+  if (id) fd.append('id', id);
+  const res = await apiPostForm(id ? 'update_pos_user' : 'add_pos_user', fd);
+  if (res.success) { showToast('User saved!'); closeFormModal(); loadUsers(); }
+  else showToast(res.error || 'Username may already exist', 'error');
+}
+async function deleteUser(id) {
+  if (!confirm('Delete this user? They will no longer be able to log in.')) return;
+  const fd = new FormData(); fd.append('action','delete_pos_user'); fd.append('id',id);
+  const res = await (await fetch('api.php',{method:'POST',body:fd})).json();
+  if (res.success) { showToast('User deleted!'); loadUsers(); }
+  else showToast(res.error, 'error');
+}
+
+async function updateAdminCredentials(e) {
+  e.preventDefault();
+  const newUser = document.getElementById('adminNewUsername').value.trim();
+  const curPass = document.getElementById('adminCurrentPass').value;
+  const newPass = document.getElementById('adminNewPass').value;
+  const conPass = document.getElementById('adminConfirmPass').value;
+  if (newPass && newPass !== conPass) { showToast('New passwords do not match', 'error'); return; }
+  const fd = new FormData();
+  fd.append('new_username', newUser);
+  fd.append('current_password', curPass);
+  fd.append('new_password', newPass);
+  fd.append('confirm_password', conPass);
+  const res = await apiPostForm('update_admin_credentials', fd);
   if (res.success) {
-    showToast('Expense deleted!');
-    loadAnalytics();
+    showToast('Credentials updated! Reloading…');
+    document.getElementById('adminCurrentPass').value = '';
+    document.getElementById('adminNewPass').value = '';
+    document.getElementById('adminConfirmPass').value = '';
+    setTimeout(() => location.reload(), 1500);
   } else {
-    showToast(res.error, 'error');
+    showToast(res.error || 'Update failed', 'error');
   }
 }
 
@@ -457,7 +598,10 @@ function renderPagination(containerId, currentPage, totalPages, onPageChange) {
 }
 
 // Init
-document.addEventListener('DOMContentLoaded', loadDashboard);
+document.addEventListener('DOMContentLoaded', () => {
+  loadDashboard();
+  document.getElementById('analyticsDate').value = new Date().toISOString().split('T')[0];
+});
 </script>
 </body>
 </html>

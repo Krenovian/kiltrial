@@ -1,3 +1,4 @@
+<?php require_once 'auth_pos.php'; ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -25,6 +26,8 @@
           <div><h1>Kilippadam</h1><span>Point of Sale</span></div>
         </div>
         <div class="top-bar-actions">
+          <span class="nav-btn" style="cursor:default;opacity:0.75">👤 <?=$posUserName?></span>
+          <button class="nav-btn" onclick="doPosLogout()" style="background:rgba(239,68,68,0.12);color:var(--red);border-color:rgba(239,68,68,0.3)">🚪 Logout</button>
           <a href="admin.php" class="nav-btn">⚙️ Admin</a>
           <button class="nav-btn" onclick="viewBillHistory()">📋 Bills</button>
         </div>
@@ -128,6 +131,7 @@ async function api(action, params = {}) {
   url.searchParams.set('action', action);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   const res = await fetch(url);
+  if (res.status === 401) { location.reload(); return { success: false }; }
   return res.json();
 }
 
@@ -137,7 +141,13 @@ async function apiPost(action, data) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...data })
   });
+  if (res.status === 401) { location.reload(); return { success: false }; }
   return res.json();
+}
+
+async function doPosLogout() {
+  await fetch('api.php?action=pos_logout');
+  location.href = 'index.php';
 }
 
 // ─── TOAST ─────────────────────────────────────────
