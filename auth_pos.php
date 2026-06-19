@@ -15,7 +15,7 @@ if (!$_posOk):
 <div class="toast-container" id="toastContainer"></div>
 <div class="login-screen">
   <div class="login-card">
-    <div class="login-brand-icon">🧾</div>
+    <div class="login-brand-icon" style="padding:0;overflow:hidden"><img src="72x72.png" alt="Kilippadam" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;"></div>
     <h2 class="login-title">Kilippadam</h2>
     <p class="login-sub">POS Cashier Login</p>
     <form onsubmit="doPosLogin(event)" style="margin-top:28px">

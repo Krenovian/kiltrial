@@ -27,6 +27,8 @@ function getDB() {
             http_response_code(500);
             die(json_encode(['error' => 'Database connection failed: ' . $e->getMessage()]));
         }
+        // Set session timezone to IST so DATE() queries work correctly
+        $pdo->exec("SET time_zone = '+05:30'");
     }
     return $pdo;
 }

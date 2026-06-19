@@ -12,7 +12,7 @@
   <div class="admin-layout">
     <div class="top-bar">
       <div class="brand">
-        <div class="brand-icon">🔥</div>
+        <div class="brand-icon" style="padding:0;overflow:hidden"><img src="42x42.png" alt="Kilippadam" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;"></div>
         <div><h1>Kilippadam</h1><span>Admin Panel</span></div>
       </div>
       <div class="top-bar-actions">
@@ -29,6 +29,7 @@
         <button class="nav-btn" onclick="showTab('bills',this)">📋 Bills</button>
         <button class="nav-btn" onclick="showTab('analytics',this)">📈 Analytics</button>
         <button class="nav-btn" onclick="showTab('users',this)">👥 Users</button>
+        <button class="nav-btn" onclick="showTab('reports',this)">📄 Reports</button>
       </div>
 
       <!-- Dashboard -->
@@ -171,6 +172,27 @@
         </div>
       </div>
 
+      <!-- Reports -->
+      <div id="tab-reports" class="tab-content" style="display:none">
+        <div class="data-card">
+          <div class="data-card-header"><h3>📄 Sales Report</h3></div>
+          <div style="padding:24px">
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:20px">Select a date range to generate a PDF report with income, expenses, and net profit — broken down per day.</p>
+            <div class="form-row" style="max-width:500px">
+              <div class="form-group">
+                <label>From Date</label>
+                <input type="date" id="reportFrom" class="discount-input" style="width:100%">
+              </div>
+              <div class="form-group">
+                <label>To Date</label>
+                <input type="date" id="reportTo" class="discount-input" style="width:100%">
+              </div>
+            </div>
+            <button class="add-btn" onclick="downloadReport()" style="margin-top:8px;padding:12px 28px;font-size:14px">📥 Download PDF Report</button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -228,10 +250,11 @@ function showTab(name, el) {
   if (name === 'items') loadItemsAdmin();
   if (name === 'bills') loadBillsAdmin();
   if (name === 'analytics') {
-    if(!document.getElementById('analyticsDate').value) document.getElementById('analyticsDate').value = new Date().toISOString().split('T')[0];
+    if(!document.getElementById('analyticsDate').value) document.getElementById('analyticsDate').value = localToday();
     loadAnalytics();
   }
   if (name === 'users') loadUsers();
+  if (name === 'reports') initReportDates();
 }
 
 // ─── DASHBOARD ────────────────────────
@@ -600,8 +623,102 @@ function renderPagination(containerId, currentPage, totalPages, onPageChange) {
 // Init
 document.addEventListener('DOMContentLoaded', () => {
   loadDashboard();
-  document.getElementById('analyticsDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('analyticsDate').value = localToday();
 });
+
+function localToday() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// ─── REPORTS ──────────────────────────────────
+function initReportDates() {
+  const t = localToday();
+  if (!document.getElementById('reportFrom').value) document.getElementById('reportFrom').value = t;
+  if (!document.getElementById('reportTo').value)   document.getElementById('reportTo').value = t;
+}
+
+async function downloadReport() {
+  const from = document.getElementById('reportFrom').value;
+  const to   = document.getElementById('reportTo').value;
+  if (!from || !to) { showToast('Please select both dates', 'error'); return; }
+  showToast('Generating report…', 'info');
+  const res = await api('get_report_data', { from, to });
+  if (!res.success) { showToast('Failed to load report data', 'error'); return; }
+  const html = buildReportHTML(res);
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 600);
+}
+
+function fmt(n) { return '₹' + parseFloat(n).toFixed(2); }
+function fmtDate(d) {
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString('en-IN', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+}
+
+function buildReportHTML(data) {
+  const profitColor = data.net_profit >= 0 ? '#166534' : '#991b1b';
+  const now = new Date().toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+  const periodLabel = data.from === data.to ? fmtDate(data.from) : `${fmtDate(data.from)} &mdash; ${fmtDate(data.to)}`;
+
+  const dayRows = data.days.map(day => {
+    const pColor = day.net_profit >= 0 ? '#166534' : '#991b1b';
+    const expRows = day.expenses.length
+      ? day.expenses.map(e => `<tr><td style="padding:4px 8px;color:#555">&nbsp;&nbsp;• ${e.description}</td><td style="padding:4px 8px;text-align:right;color:#555">₹${parseFloat(e.amount).toFixed(2)}</td></tr>`).join('')
+      : '';
+    return `
+      <tr style="background:#f0fdf4">
+        <td colspan="2" style="padding:10px 8px;font-weight:700;font-size:14px;border-top:2px solid #968E5C;color:#14532d">${fmtDate(day.date)}</td>
+      </tr>
+      <tr>
+        <td style="padding:5px 8px">Sales Income</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:600;color:#166534">${fmt(day.income)}</td>
+      </tr>
+      ${expRows}
+      <tr>
+        <td style="padding:5px 8px">Total Expenses</td>
+        <td style="padding:5px 8px;text-align:right;color:#991b1b">-${fmt(day.total_expenses)}</td>
+      </tr>
+      <tr style="background:#fefce8">
+        <td style="padding:6px 8px;font-weight:700">Net Profit</td>
+        <td style="padding:6px 8px;text-align:right;font-weight:800;color:${pColor}">${fmt(day.net_profit)}</td>
+      </tr>
+      <tr><td style="padding:3px 8px;color:#888;font-size:12px">Bills raised</td><td style="padding:3px 8px;text-align:right;color:#888;font-size:12px">${day.bill_count}</td></tr>`;
+  }).join('<tr><td colspan="2" style="padding:2px"></td></tr>');
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Kilippadam Sales Report</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:30px;}
+  h1{font-size:22px;margin:0 0 2px}h2{font-size:15px;margin:0 0 4px;color:#555}
+  .header{border-bottom:3px solid #968E5C;padding-bottom:14px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-end}
+  .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+  .sum-box{border:1px solid #ddd;border-radius:8px;padding:14px;text-align:center}
+  .sum-box .val{font-size:20px;font-weight:800;margin-top:4px}
+  .sum-box .lbl{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  @media print{body{padding:10px}button{display:none}}
+</style></head><body>
+<div class="header">
+  <div><h1>🍽 Kilippadam</h1><h2>Sales Report</h2><p style="margin:4px 0;color:#555;font-size:12px">${periodLabel}</p></div>
+  <div style="text-align:right;font-size:11px;color:#888">Generated: ${now}</div>
+</div>
+<div class="summary">
+  <div class="sum-box"><div class="lbl">Total Income</div><div class="val" style="color:#166534">${fmt(data.total_income)}</div></div>
+  <div class="sum-box"><div class="lbl">Total Expenses</div><div class="val" style="color:#991b1b">${fmt(data.total_expenses)}</div></div>
+  <div class="sum-box"><div class="lbl">Net Profit</div><div class="val" style="color:${profitColor}">${fmt(data.net_profit)}</div></div>
+  <div class="sum-box"><div class="lbl">Total Bills</div><div class="val">${data.total_bills}</div></div>
+</div>
+${ data.days.length > 1 ? `<h3 style="margin-bottom:10px;color:#444">Day-by-Day Breakdown</h3><table>${dayRows}</table>` : `<table>${dayRows}</table>` }
+<p style="margin-top:30px;font-size:11px;color:#aaa;text-align:center">Kilippadam POS &bull; Confidential Sales Report</p>
+</body></html>`;
+}
 </script>
 </body>
 </html>

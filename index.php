@@ -22,7 +22,7 @@
       <!-- Top Bar -->
       <div class="top-bar">
         <div class="brand">
-          <div class="brand-icon">🔥</div>
+          <div class="brand-icon" style="padding:0;overflow:hidden"><img src="42x42.png" alt="Kilippadam" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;"></div>
           <div><h1>Kilippadam</h1><span>Point of Sale</span></div>
         </div>
         <div class="top-bar-actions">

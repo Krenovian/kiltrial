@@ -1,7 +1,9 @@
 <?php
 session_start();
+date_default_timezone_set('Asia/Kolkata');
 header('Content-Type: application/json');
 require_once 'db.php';
+
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
@@ -214,6 +216,47 @@ try {
             $db->prepare("DELETE FROM expenses WHERE id=?")->execute([intval($_POST['id']??0)]);
             echo json_encode(['success'=>true]);
             break;
+
+        case 'get_report_data':
+            requireAdmin();
+            $from = $_GET['from'] ?? date('Y-m-d');
+            $to   = $_GET['to']   ?? date('Y-m-d');
+            if ($from > $to) { $tmp=$from; $from=$to; $to=$tmp; }
+
+            // Income per day
+            $stmt = $db->prepare("SELECT DATE(created_at) as d, COUNT(*) as bill_count, COALESCE(SUM(total),0) as income
+                FROM bills WHERE DATE(created_at) BETWEEN ? AND ? AND status='completed' GROUP BY DATE(created_at)");
+            $stmt->execute([$from, $to]);
+            $incomeMap = [];
+            foreach ($stmt->fetchAll() as $r) $incomeMap[$r['d']] = $r;
+
+            // Expense items per day
+            $stmt = $db->prepare("SELECT * FROM expenses WHERE expense_date BETWEEN ? AND ? ORDER BY expense_date ASC, id ASC");
+            $stmt->execute([$from, $to]);
+            $expMap = [];
+            foreach ($stmt->fetchAll() as $r) $expMap[$r['expense_date']][] = $r;
+
+            // Build per-day rows
+            $days = []; $cur = new DateTime($from); $end = new DateTime($to);
+            while ($cur <= $end) {
+                $ds = $cur->format('Y-m-d');
+                $inc = floatval($incomeMap[$ds]['income'] ?? 0);
+                $bills = intval($incomeMap[$ds]['bill_count'] ?? 0);
+                $exps = $expMap[$ds] ?? [];
+                $expTotal = array_sum(array_column($exps, 'amount'));
+                $days[] = ['date'=>$ds,'income'=>$inc,'bill_count'=>$bills,
+                           'total_expenses'=>$expTotal,'net_profit'=>$inc-$expTotal,'expenses'=>$exps];
+                $cur->modify('+1 day');
+            }
+
+            $totalInc  = array_sum(array_column($days,'income'));
+            $totalExp  = array_sum(array_column($days,'total_expenses'));
+            $totalBills = array_sum(array_column($days,'bill_count'));
+            echo json_encode(['success'=>true,'from'=>$from,'to'=>$to,'days'=>$days,
+                'total_income'=>$totalInc,'total_expenses'=>$totalExp,
+                'net_profit'=>$totalInc-$totalExp,'total_bills'=>$totalBills]);
+            break;
+
 
         // ── CATEGORIES ───────────────────────────────────────────────
         case 'get_categories':
