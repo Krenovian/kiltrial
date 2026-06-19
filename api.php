@@ -12,7 +12,71 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 try {
     $db = getDB();
 
+    // Ensure expenses table exists
+    $db->exec("CREATE TABLE IF NOT EXISTS expenses (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        expense_date DATE NOT NULL,
+        description VARCHAR(255) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
     switch ($action) {
+        
+        // ─── ANALYTICS & EXPENSES ───────────────────────────────
+        case 'get_daily_stats':
+            $date = $_GET['date'] ?? date('Y-m-d');
+            
+            // Income
+            $stmt = $db->prepare("SELECT COALESCE(SUM(total), 0) FROM bills WHERE DATE(created_at) = ? AND status = 'completed'");
+            $stmt->execute([$date]);
+            $income = $stmt->fetchColumn();
+            
+            // Expenses
+            $stmt = $db->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date = ?");
+            $stmt->execute([$date]);
+            $total_expenses = $stmt->fetchColumn();
+            
+            // Expense List
+            $stmt = $db->prepare("SELECT * FROM expenses WHERE expense_date = ? ORDER BY id DESC");
+            $stmt->execute([$date]);
+            $expenses = $stmt->fetchAll();
+            
+            $net_profit = $income - $total_expenses;
+            
+            echo json_encode([
+                'success' => true,
+                'income' => $income,
+                'total_expenses' => $total_expenses,
+                'net_profit' => $net_profit,
+                'expenses' => $expenses
+            ]);
+            break;
+
+        case 'add_expense':
+            $date = $_POST['date'] ?? date('Y-m-d');
+            $desc = trim($_POST['description'] ?? '');
+            $amount = floatval($_POST['amount'] ?? 0);
+            
+            if (!$desc || $amount <= 0) throw new Exception('Invalid expense details');
+            
+            $stmt = $db->prepare("INSERT INTO expenses (expense_date, description, amount) VALUES (?, ?, ?)");
+            if ($stmt->execute([$date, $desc, $amount])) {
+                echo json_encode(['success' => true]);
+            } else {
+                throw new Exception('Failed to add expense');
+            }
+            break;
+            
+        case 'delete_expense':
+            $id = intval($_POST['id'] ?? 0);
+            $stmt = $db->prepare("DELETE FROM expenses WHERE id = ?");
+            if ($stmt->execute([$id])) {
+                echo json_encode(['success' => true]);
+            } else {
+                throw new Exception('Failed to delete expense');
+            }
+            break;
 
         // ─── CATEGORIES ─────────────────────────────────────────
         case 'get_categories':
@@ -199,6 +263,18 @@ try {
             $bill['items'] = $stmt->fetchAll();
 
             echo json_encode(['success' => true, 'data' => $bill]);
+            break;
+
+        case 'delete_bill':
+            $id = intval($_POST['id'] ?? 0);
+            if ($id <= 0) throw new Exception('Invalid bill ID');
+            
+            $stmt = $db->prepare("DELETE FROM bills WHERE id = ?");
+            if ($stmt->execute([$id])) {
+                echo json_encode(['success' => true]);
+            } else {
+                throw new Exception('Failed to delete bill');
+            }
             break;
 
         // ─── DASHBOARD ──────────────────────────────────────────

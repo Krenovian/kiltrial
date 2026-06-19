@@ -24,6 +24,7 @@
         <button class="nav-btn" onclick="showTab('categories',this)">📁 Categories</button>
         <button class="nav-btn" onclick="showTab('items',this)">🍽️ Menu Items</button>
         <button class="nav-btn" onclick="showTab('bills',this)">📋 Bills</button>
+        <button class="nav-btn" onclick="showTab('analytics',this)">📈 Analytics</button>
       </div>
 
       <!-- Dashboard -->
@@ -71,10 +72,52 @@
           <div class="data-card-header"><h3>📋 All Bills</h3>
             <input type="date" class="discount-input" style="width:auto" id="billDateFilter" onchange="billPage=1;loadBillsAdmin()"></div>
           <div class="table-scroll">
-          <table><thead><tr><th>Bill #</th><th>Date</th><th>Total</th><th>Payment</th><th>Status</th></tr></thead>
+          <table><thead><tr><th>Bill #</th><th>Date</th><th>Total</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="billsBody"></tbody></table>
           </div>
           <div class="pagination" id="billPagination"></div>
+        </div>
+      </div>
+
+      <!-- Analytics -->
+      <div id="tab-analytics" class="tab-content" style="display:none">
+        <div class="data-card-header" style="margin-bottom:16px;">
+          <h2>📈 Daily Analytics</h2>
+          <input type="date" class="discount-input" style="width:auto" id="analyticsDate" onchange="loadAnalytics()">
+        </div>
+        
+        <div class="stat-grid" id="analyticsStats" style="margin-bottom:16px;">
+          <!-- Populated by JS -->
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px">
+          <!-- Add Expense Form -->
+          <div class="data-card">
+            <div class="data-card-header"><h3>💸 Add Expense</h3></div>
+            <form onsubmit="addExpense(event)" style="padding:16px;">
+              <div class="form-group">
+                <label>Description</label>
+                <input type="text" id="expenseDesc" placeholder="e.g. Vegetables, Rent" required>
+              </div>
+              <div class="form-group">
+                <label>Amount (₹)</label>
+                <input type="number" step="0.01" id="expenseAmount" placeholder="0.00" required>
+              </div>
+              <button type="submit" class="bill-btn" style="width:100%">+ Add Expense</button>
+            </form>
+          </div>
+
+          <!-- Expenses List -->
+          <div class="data-card">
+            <div class="data-card-header"><h3>📝 Expenses List</h3></div>
+            <div class="table-scroll" style="max-height:400px;">
+              <table>
+                <thead><tr><th>Description</th><th>Amount</th><th>Actions</th></tr></thead>
+                <tbody id="expensesBody"></tbody>
+              </table>
+            </div>
+            <div class="pagination" id="expensePagination"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -93,7 +136,8 @@
 let categories = [];
 let allCategoriesData = [];
 let allItemsData = [];
-let catPage = 1, itemPage = 1, billPage = 1;
+let allExpensesData = [];
+let catPage = 1, itemPage = 1, billPage = 1, expensePage = 1;
 const PER_PAGE = 10;
 
 // ─── API ──────────────────────────────
@@ -127,6 +171,10 @@ function showTab(name, el) {
   if (name === 'categories') loadCategories();
   if (name === 'items') loadItemsAdmin();
   if (name === 'bills') loadBillsAdmin();
+  if (name === 'analytics') {
+    if(!document.getElementById('analyticsDate').value) document.getElementById('analyticsDate').value = new Date().toISOString().split('T')[0];
+    loadAnalytics();
+  }
 }
 
 // ─── DASHBOARD ────────────────────────
@@ -287,11 +335,97 @@ async function loadBillsAdmin() {
     <td style="font-weight:700;color:var(--green)">₹${parseFloat(b.total).toFixed(2)}</td>
     <td>${b.payment_method === 'cash' ? '💵' : b.payment_method === 'card' ? '💳' : '📱'} ${b.payment_method}</td>
     <td><span class="status-badge ${b.status === 'completed' ? 'active' : 'inactive'}">${b.status}</span></td>
-  </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:40px">No bills found</td></tr>';
+    <td><button class="action-btn delete" onclick="deleteBill(${b.id})">Delete</button></td>
+  </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:40px">No bills found</td></tr>';
   renderPagination('billPagination', billPage, res.pages || 1, p => { billPage = p; loadBillsAdmin(); });
 }
 
 function closeFormModal() { document.getElementById('formModal').style.display = 'none'; }
+
+async function deleteBill(id) {
+  if (!confirm('Are you sure you want to delete this bill? This cannot be undone.')) return;
+  const fd = new FormData();
+  fd.append('id', id);
+  fd.append('action', 'delete_bill');
+  const res = await (await fetch('api.php', { method: 'POST', body: fd })).json();
+  if (res.success) { showToast('Bill deleted!'); loadBillsAdmin(); }
+  else showToast(res.error, 'error');
+}
+
+// ─── ANALYTICS ──────────────────────────
+async function loadAnalytics() {
+  const date = document.getElementById('analyticsDate').value;
+  const res = await api('get_daily_stats', { date });
+  if (!res.success) return;
+
+  const income = parseFloat(res.income).toFixed(2);
+  const expenses = parseFloat(res.total_expenses).toFixed(2);
+  const profit = parseFloat(res.net_profit).toFixed(2);
+  const profitColor = res.net_profit >= 0 ? 'var(--green)' : 'var(--red)';
+
+  document.getElementById('analyticsStats').innerHTML = `
+    <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-value" style="color:var(--green)">₹${income}</div><div class="stat-label">Total Income</div></div>
+    <div class="stat-card"><div class="stat-icon">💸</div><div class="stat-value" style="color:var(--red)">₹${expenses}</div><div class="stat-label">Total Expenses</div></div>
+    <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-value" style="color:${profitColor}">₹${profit}</div><div class="stat-label">Net Profit</div></div>
+  `;
+
+  allExpensesData = res.expenses || [];
+  expensePage = 1;
+  renderExpensesPage();
+}
+
+function renderExpensesPage() {
+  const data = allExpensesData;
+  const total = Math.ceil(data.length / PER_PAGE);
+  const paged = data.slice((expensePage - 1) * PER_PAGE, expensePage * PER_PAGE);
+  
+  document.getElementById('expensesBody').innerHTML = paged.map(e => `
+    <tr>
+      <td>${e.description}</td>
+      <td style="color:var(--red);font-weight:600;">₹${parseFloat(e.amount).toFixed(2)}</td>
+      <td><button class="action-btn delete" onclick="deleteExpense(${e.id})">Delete</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:40px">No expenses for this day</td></tr>';
+  
+  renderPagination('expensePagination', expensePage, total, p => { expensePage = p; renderExpensesPage(); });
+}
+
+async function addExpense(e) {
+  e.preventDefault();
+  const date = document.getElementById('analyticsDate').value;
+  const desc = document.getElementById('expenseDesc').value;
+  const amount = document.getElementById('expenseAmount').value;
+
+  const fd = new FormData();
+  fd.append('action', 'add_expense');
+  fd.append('date', date);
+  fd.append('description', desc);
+  fd.append('amount', amount);
+
+  const res = await (await fetch('api.php', { method: 'POST', body: fd })).json();
+  if (res.success) {
+    showToast('Expense added!');
+    document.getElementById('expenseDesc').value = '';
+    document.getElementById('expenseAmount').value = '';
+    loadAnalytics();
+  } else {
+    showToast(res.error, 'error');
+  }
+}
+
+async function deleteExpense(id) {
+  if (!confirm('Delete this expense?')) return;
+  const fd = new FormData();
+  fd.append('action', 'delete_expense');
+  fd.append('id', id);
+  const res = await (await fetch('api.php', { method: 'POST', body: fd })).json();
+  if (res.success) {
+    showToast('Expense deleted!');
+    loadAnalytics();
+  } else {
+    showToast(res.error, 'error');
+  }
+}
 
 // ─── PAGINATION RENDERER ───────────────
 function renderPagination(containerId, currentPage, totalPages, onPageChange) {
